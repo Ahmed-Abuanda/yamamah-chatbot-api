@@ -11,7 +11,7 @@ import numpy as np
 import mysql.connector
 import pandas as pd
 
-client = genai.Client(api_key='AIzaSyB6dYy1WGzq62cHPNelTw4yCnlAGm-Wl6U')
+client = genai.Client(api_key='AIzaSyDaqirxo3mh7WOh1Udbjq6yZxbLRtgyxtg')
 
 map_data_schema = {
     "type": "object",
@@ -214,7 +214,7 @@ async def chat(request: ChatRequest):
         """
 
         response = client.models.generate_content(
-            model="gemini-2.5-pro", 
+            model="gemini-2.5-flash", 
             contents=system_instruction,
             config={
                 "temperature": 0.1 
@@ -270,7 +270,7 @@ async def chat(request: ChatRequest):
         """
 
         response = client.models.generate_content(
-            model="gemini-2.5-pro", 
+            model="gemini-2.5-flash", 
             contents=system_instruction_decode,
             config={
                 "temperature": 0.1 
@@ -310,7 +310,7 @@ async def chat(request: ChatRequest):
             """
             
             response = client.models.generate_content(
-                model="gemini-2.5-pro", 
+                model="gemini-2.5-flash", 
                 contents=system_instruction_map_decode,
                 config={
                     "temperature": 0.1,
@@ -330,7 +330,7 @@ async def chat(request: ChatRequest):
                 ),
                 mapData=map_data_result
             )
-        elif response_text_decode == "CHAT":
+        else:
             system_instruction_chat_decode = f"""
             The user has asked a general question, you need to return a response to the user. You will be provided with the data in a JSON format.
 
@@ -344,7 +344,7 @@ async def chat(request: ChatRequest):
             """
             
             response = client.models.generate_content(
-                model="gemini-2.5-pro", 
+                model="gemini-2.5-flash", 
                 contents=system_instruction_chat_decode,
                 config={
                     "temperature": 0.1 
@@ -358,10 +358,6 @@ async def chat(request: ChatRequest):
                 outputMessage=response_text_chat
             )
         
-        return ChatResponse(
-            sessionId=session_id,
-            outputMessage=f"I queried a total of {len(df_result)} records"
-        )
 
 
 @app.get("/")
