@@ -2,6 +2,98 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import Optional, Dict, List, Any
 import random
+from google import genai
+import faiss
+import json
+import torch
+from transformers import AutoTokenizer, AutoModel
+import numpy as np
+import mysql.connector
+import pandas as pd
+
+client = genai.Client(api_key='AIzaSyB6dYy1WGzq62cHPNelTw4yCnlAGm-Wl6U')
+
+map_data_schema = {
+    "type": "object",
+    "description": "JSON object containing data to visualize on the map. Must be one of: district-level, region-level, or city-level data.",
+    "properties": {
+        "districts": {
+            "type": "object",
+            "description": "District-level data. Keys MUST be the actual district_id values from the database (not generated). Values should be the aggregated metric numbers.",
+            "additionalProperties": {
+                "type": "number"
+            }
+        },
+        "regions": {
+            "type": "object",
+            "description": "Region-level data. Keys MUST be the actual region_id values from the database (not generated). Values should be the aggregated metric numbers.",
+            "additionalProperties": {
+                "type": "number"
+            }
+        },
+        "cities": {
+            "type": "object",
+            "description": "City-level data. Keys MUST be the actual city_id values from the database (not generated). Values should be the aggregated metric numbers.",
+            "additionalProperties": {
+                "type": "number"
+            }
+        },
+        "title": {
+            "type": "string",
+            "description": "The title describing what the data represents (e.g., 'Population', 'Average Age', 'Education Index')."
+        }
+    },
+    "required": ["title"],
+    "oneOf": [
+        {"required": ["districts", "title"]},
+        {"required": ["regions", "title"]},
+        {"required": ["cities", "title"]}
+    ]
+}
+
+# ----------------------------
+# 1️⃣ Load FAISS index + docs
+# ----------------------------
+index = faiss.read_index("schema_index.faiss")
+
+with open("docs.json", "r", encoding="utf-8") as f:
+    docs = json.load(f) 
+
+# ----------------------------
+# 2️⃣ Load BGE-M3 model
+# ----------------------------
+model_name = "BAAI/bge-m3"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModel.from_pretrained(model_name)
+
+def embed_text(texts):
+    """Embed text using BGE-M3 (CLS pooling + normalization)."""
+    inputs = tokenizer(texts, padding=True, truncation=True, return_tensors="pt")
+    with torch.no_grad():
+        embeddings = model(**inputs).last_hidden_state[:, 0]  
+    embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
+    return embeddings.cpu().numpy()
+
+# -------------------------------
+# 1️⃣ Database connection details
+# -------------------------------
+host = "database-1.cko66etrq98i.us-east-1.rds.amazonaws.com"
+port = 3306
+username = "mysqladmin"
+password = "mysqladmin"
+database = "yamamah_mod"
+
+# Connect to database
+connection = mysql.connector.connect(
+    host=host,
+    port=port,
+    user=username,
+    password=password,
+    database=database
+)
+
+# Create cursor
+cursor = connection.cursor()
 
 app = FastAPI(
     title="Yamama Chatbot API",
@@ -96,9 +188,152 @@ async def chat(request: ChatRequest):
     
     # Default response for any other session ID
     else:
+        user_query = request.inputMessage
+        q_vec = embed_text([user_query])
+
+        D, I = index.search(q_vec, k=5)  # top-5 matches
+
+        retrieved_docs = [docs[idx]["text"] for idx in I[0]]
+
+        retrieved_tables = "\n".join(retrieved_docs)
+
+        system_instruction = f"""
+        You are an expert SQL Query Generator.
+        Your task is to convert a user's natural language question into a single, syntactically correct SQL query.
+        The query MUST ONLY use the tables provided in the 'AVAILABLE SCHEMA' below.
+        DO NOT include any explanation, context, or surrounding text (like markdown ticks ```).
+        The output must be ONLY the raw SQL query.
+        The output should always be aggregated regardless of the user question. For example, 'patients who live in Riyadh and have diabetes' should be queried aggregated and not raw.
+        If the user ask about a specific region, city, or district, return the region_id, city_id, or district_id (depending on the user question) as an additional column and proceed with structuring the query correctly with the joins and conditions. 
+
+        AVAILABLE SCHEMA:
+        {retrieved_tables}
+
+        USER QUESTION TO CONVERT:
+        {user_query}
+        """
+
+        response = client.models.generate_content(
+            model="gemini-2.5-pro", 
+            contents=system_instruction,
+            config={
+                "temperature": 0.1 
+            }
+        )
+
+        generated_sql = response.text.strip()
+        print(generated_sql)
+
+
+        # Connect to database
+        connection = mysql.connector.connect(
+            host=host,
+            port=port,
+            user=username,
+            password=password,
+            database=database
+        )
+
+        # Create cursor
+        cursor = connection.cursor()
+
+
+        retrieved_table_names = [
+            line.split(":")[1].split("(")[0].strip()
+            for line in retrieved_tables.splitlines()
+            if line.startswith("Table:")
+        ]
+
+        query = generated_sql.strip()  
+
+        cursor.execute(query)
+
+        # Fetch result into DataFrame
+        columns = [desc[0] for desc in cursor.description]
+        rows = cursor.fetchall()
+        df_result = pd.DataFrame(rows, columns=columns)
+
+        cursor.close()
+        connection.close()
+
+        system_instruction_decode = f"""The user has asked a quesiton, you need to decode it depending on the functionality, the 3 options are:
+        
+        1. CHAT: The user is asking a general question that doesn't require any specific data.
+        2. CHART: The user is asking for a chart or graph of the data.
+        3. MAP: The user is asking for a map of the data.
+
+        Please return only of these 3 options, no other text or explanation.
+        Return only the text options "CHAT", "CHART", or "MAP".
+
+        USER QUESTION:
+        {user_query}
+        """
+
+        response = client.models.generate_content(
+            model="gemini-2.5-pro", 
+            contents=system_instruction_decode,
+            config={
+                "temperature": 0.1 
+            }
+        )
+
+        response_text_decode = response.text
+
+        if response_text_decode == "MAP":
+            system_instruction_map_decode = f"""
+            The user has asked for map visualizations, and data has been queried to display the new visuals. 
+            You will be provided with the data in a JSON format and you need to transform it into the mapData format.
+
+            CRITICAL Instructions:
+            1. Analyze the database results to identify if it contains region_id, city_id, or district_id columns
+            2. Use the ACTUAL ID values from the database - DO NOT generate or make up IDs
+            3. Look for columns like region_id, city_id, or district_id in the data
+            4. The ID column values should be the KEYS in the output object
+            5. The aggregated metric (count, average, etc.) should be the VALUES
+            6. Create a descriptive title based on what the data represents
+            7. Return ONLY a valid JSON object matching the schema below
+
+            Example transformation:
+            If data has [{{ "region_id": 1, "patient_count": 500 }}, {{ "region_id": 2, "patient_count": 300 }}]
+            Then output should be: {{ "regions": {{ "1": 500, "2": 300 }}, "title": "Patient Count by Region" }}
+
+            USER QUESTION:
+            {user_query}
+
+            DATA FROM DATABASE:
+            {df_result.to_json(orient="records")}
+
+            EXPECTED SCHEMA:
+            {json.dumps(map_data_schema, indent=2)}
+
+            Return ONLY the JSON object, no explanations or markdown. Use the actual IDs from the data!
+            """
+            
+            response = client.models.generate_content(
+                model="gemini-2.5-pro", 
+                contents=system_instruction_map_decode,
+                config={
+                    "temperature": 0.1,
+                    "response_mime_type": "application/json"
+                }
+            )
+            
+            map_data_result = json.loads(response.text)
+            
+            return ChatResponse(
+                sessionId=session_id,
+                outputMessage=f"Here's the visualization of the data across the requested geographic areas.",
+                mapAction="REFRESH",
+                mapCoordinates=MapCoordinates(
+                    latitude=23.8859,
+                    longitude=45.0792
+                ),
+                mapData=map_data_result
+            )
+            
         return ChatResponse(
             sessionId=session_id,
-            outputMessage="I received your message. Please use session ID: CHAT, CHART, or MAP for demo responses."
+            outputMessage=f"I queried a total of {len(df_result)} records"
         )
 
 
