@@ -12,7 +12,20 @@ import mysql.connector
 import pandas as pd
 
 client = genai.Client(api_key='AIzaSyDaqirxo3mh7WOh1Udbjq6yZxbLRtgyxtg')
-
+ID_MAPPING = """
+ID 1: Riyadh (منطقة الرياض)
+ID 2: Makkah (منطقة مكة المكرمة)
+ID 3: Madinah (منطقة المدينة المنورة)
+ID 4: Qassim (منطقة القصيم)
+ID 5: Eastern Region (المنطقة الشرقية)
+ID 6: Asir (منطقة عسير)
+ID 7: Tabuk (منطقة تبوك)
+ID 8: Hail (منطقة حائل)
+ID 9: Northern Region (منطقة الحدود الشمالية)
+ID 10: Jizan (منطقة جازان)
+ID 11: Najran (منطقة نجران)
+ID 12: Bahah (منطقة الباحة)
+ID 13: Jawf (منطقة الجوف)"""
 map_data_schema = {
     "type": "object",
     "description": "JSON object containing data to visualize on the map. Must be one of: district-level, region-level, or city-level data.",
@@ -204,10 +217,13 @@ async def chat(request: ChatRequest):
         DO NOT include any explanation, context, or surrounding text (like markdown ticks ```).
         The output must be ONLY the raw SQL query.
         The output should always be aggregated regardless of the user question. For example, 'patients who live in Riyadh and have diabetes' should be queried aggregated and not raw.
-        If the user ask about a specific region, city, or district, return the region_id, city_id, or district_id (depending on the user question) as an additional column and proceed with structuring the query correctly with the joins and conditions. 
+        If the user ask about a specific region, city, or district, return the region_id, city_id, or district_id (depending on the user question) as well as the name of the region, city or district as additional columns and proceed with structuring the query correctly with the joins and conditions. 
 
         AVAILABLE SCHEMA:
         {retrieved_tables}
+
+        REGION ID MAPPING:
+        {ID_MAPPING}
 
         USER QUESTION TO CONVERT:
         {user_query}
@@ -251,6 +267,7 @@ async def chat(request: ChatRequest):
         # Fetch result into DataFrame
         columns = [desc[0] for desc in cursor.description]
         rows = cursor.fetchall()
+        print(rows, flush=True)
         df_result = pd.DataFrame(rows, columns=columns)
 
         cursor.close()
