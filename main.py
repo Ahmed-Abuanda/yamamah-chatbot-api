@@ -73,11 +73,13 @@ with open("docs.json", "r", encoding="utf-8") as f:
     docs = json.load(f) 
 
 # ----------------------------
-# 2️⃣ Load BGE-M3 model
+# 2️⃣ Load BGE-M3 model (cached from Docker build)
 # ----------------------------
 model_name = "BAAI/bge-m3"
+print("Loading BGE-M3 model from cache...")
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModel.from_pretrained(model_name)
+print("BGE-M3 model loaded successfully!")
 
 def embed_text(texts):
     """Embed text using BGE-M3 (CLS pooling + normalization)."""
@@ -317,6 +319,9 @@ async def chat(request: ChatRequest):
             USER QUESTION:
             {user_query}
 
+            REGION ID MAPPING:
+            {ID_MAPPING}
+
             DATA FROM DATABASE:
             {df_result.to_json(orient="records")}
 
@@ -351,13 +356,18 @@ async def chat(request: ChatRequest):
             system_instruction_chat_decode = f"""
             The user has asked a general question, you need to return a response to the user. You will be provided with the data in a JSON format.
 
+            If the data is focused on a specific region, city, or district, return the region_id, city_id, or district_id (depending on the user question) in one of the regionId, cityId, or districtId fields.
+
             USER QUESTION:
             {user_query}
 
             DATA FROM DATABASE:
             {df_result.to_json(orient="records")}
 
-            Return only text response to the user.
+            Return only the following json format:
+            {{'outputMessage': 'response to the user', 'regionId': 'region_id', 'cityId': 'city_id', 'districtId': 'district_id'}}.
+            
+            have regionId, cityId, or districtId default to null if the question is not about a specific region, city, or district.
             """
             
             response = client.models.generate_content(
@@ -368,12 +378,42 @@ async def chat(request: ChatRequest):
                 }
             )
             
+            print(response, flush=True)
+
             response_text_chat = response.text
             
-            return ChatResponse(
-                sessionId=session_id,
-                outputMessage=response_text_chat
-            )
+            # Parse the JSON response from the model
+            try:
+                # Extract JSON from markdown code blocks if present
+                import re
+                import json
+                
+                # Look for JSON content in code blocks
+                json_match = re.search(r'```json\s*\n(.*?)\n```', response_text_chat, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(1)
+                else:
+                    # Try to find JSON without code blocks
+                    json_str = response_text_chat.strip()
+                
+                # Parse the JSON
+                parsed_response = json.loads(json_str)
+                
+                return ChatResponse(
+                    sessionId=session_id,
+                    outputMessage=parsed_response.get('outputMessage', response_text_chat),
+                    regionId=str(parsed_response.get('regionId')) if parsed_response.get('regionId') is not None else None,
+                    cityId=str(parsed_response.get('cityId')) if parsed_response.get('cityId') is not None else None,
+                    districtId=str(parsed_response.get('districtId')) if parsed_response.get('districtId') is not None else None
+                )
+                
+            except (json.JSONDecodeError, AttributeError) as e:
+                # Fallback to original behavior if JSON parsing fails
+                print(f"Failed to parse JSON response: {e}", flush=True)
+                return ChatResponse(
+                    sessionId=session_id,
+                    outputMessage=response_text_chat
+                )
         
 
 
