@@ -1,3 +1,21 @@
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-pydantic==2.5.0
+# Web Framework
+fastapi==0.115.0
+uvicorn[standard]==0.31.0
+pydantic==2.9.2
+
+# Google Generative AI
+google-genai==0.2.2
+
+# Vector Search
+faiss-cpu==1.8.0
+
+# Machine Learning / NLP
+torch==2.4.1
+transformers==4.45.2
+numpy==1.26.4
+
+# Database
+mysql-connector-python==9.0.0
+
+# Data Processing
+pandas==2.2.3
