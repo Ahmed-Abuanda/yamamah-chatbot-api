@@ -330,7 +330,34 @@ async def chat(request: ChatRequest):
                 ),
                 mapData=map_data_result
             )
+        elif response_text_decode == "CHAT":
+            system_instruction_chat_decode = f"""
+            The user has asked a general question, you need to return a response to the user. You will be provided with the data in a JSON format.
+
+            USER QUESTION:
+            {user_query}
+
+            DATA FROM DATABASE:
+            {df_result.to_json(orient="records")}
+
+            Return only text response to the user.
+            """
             
+            response = client.models.generate_content(
+                model="gemini-2.5-pro", 
+                contents=system_instruction_chat_decode,
+                config={
+                    "temperature": 0.1 
+                }
+            )
+            
+            response_text_chat = response.text
+            
+            return ChatResponse(
+                sessionId=session_id,
+                outputMessage=response_text_chat
+            )
+        
         return ChatResponse(
             sessionId=session_id,
             outputMessage=f"I queried a total of {len(df_result)} records"
