@@ -289,14 +289,24 @@ async def chat(request: ChatRequest):
 
         system_instruction_chat_decode = f"""
         The user has asked a general question, you need to return a response to the user. You will be provided with the data in a JSON format.
+        You will also return a map action to perform on the map based on the request of the user, the 4 options are:
+        REFRESH: Refresh the map with the new data.
+        ZOOMIN: Zoom in on the map.
+        ZOOMOUT: Zoom out on the map.
+        MOVE: Move the map to the location specified by the user.
 
+        if there is no action to be performed, return "NONE".
+    
         USER QUESTION:
         {user_query}
 
         DATA FROM DATABASE:
         {df_result.to_json(orient="records")}
         
-        return a text response to the user.
+        return with the following json format:
+        {{'outputMessage': 'response to the user', 'mapAction': 'map action'}}.
+
+        have mapAction default to "NONE" if there is no action to be performed.
         """
         
         response = client.models.generate_content(
@@ -307,11 +317,12 @@ async def chat(request: ChatRequest):
             }
         )
 
-        response_text_chat = response.text
+        response_text_chat = json.loads(response.text)
 
         return ChatResponse(
             sessionId=session_id,
-            outputMessage=response_text_chat,
+            outputMessage=response_text_chat.get('outputMessage'),
+            mapAction=response_text_chat.get('mapAction') if response_text_chat.get('mapAction') is not None else "NONE",
             regionId=str(df_result.iloc[0].get('region_id')) if df_result.iloc[0].get('region_id') is not None else None,
             cityId=str(df_result.iloc[0].get('city_id')) if df_result.iloc[0].get('city_id') is not None else None,
             districtId=str(df_result.iloc[0].get('district_id')) if df_result.iloc[0].get('district_id') is not None else None
