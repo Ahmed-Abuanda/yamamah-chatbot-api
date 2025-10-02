@@ -10,6 +10,7 @@ from transformers import AutoTokenizer, AutoModel
 import numpy as np
 import mysql.connector
 import pandas as pd
+import re
 
 client = genai.Client(api_key='AIzaSyDaqirxo3mh7WOh1Udbjq6yZxbLRtgyxtg')
 ID_MAPPING = """
@@ -88,6 +89,16 @@ def embed_text(texts):
         embeddings = model(**inputs).last_hidden_state[:, 0]  
     embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
     return embeddings.cpu().numpy()
+
+def strip_sql_markdown(sql_text):
+    """Strip markdown formatting from SQL queries."""
+    # Remove markdown code blocks (```sql ... ``` or ``` ... ```)
+    sql_text = re.sub(r'```(?:sql)?\s*\n?(.*?)\n?```', r'\1', sql_text, flags=re.DOTALL)
+    
+    # Remove any leading/trailing whitespace
+    sql_text = sql_text.strip()
+    
+    return sql_text
 
 # -------------------------------
 # 1️⃣ Database connection details
@@ -240,6 +251,7 @@ async def chat(request: ChatRequest):
         )
 
         generated_sql = response.text.strip()
+        generated_sql = strip_sql_markdown(generated_sql)
         print(generated_sql)
 
 
