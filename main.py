@@ -250,7 +250,7 @@ async def chat(request: ChatRequest):
             }
         )
 
-        generated_sql = response.text.strip()
+        generated_sql = response.candidates[0].content.parts[0].text.strip()
         generated_sql = strip_sql_markdown(generated_sql)
         print(generated_sql)
 
@@ -317,7 +317,7 @@ async def chat(request: ChatRequest):
             }
         )
 
-        response_text_chat = json.loads(response.text)
+        response_text_chat = json.loads(response.candidates[0].content.parts[0].text)
 
         return ChatResponse(
             sessionId=session_id,
