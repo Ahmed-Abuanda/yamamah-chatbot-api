@@ -269,151 +269,181 @@ async def chat(request: ChatRequest):
         # Fetch result into DataFrame
         columns = [desc[0] for desc in cursor.description]
         rows = cursor.fetchall()
-        print(rows, flush=True)
+        # print(rows, flush=True)
         df_result = pd.DataFrame(rows, columns=columns)
-
+        print(df_result, flush=True)
         cursor.close()
         connection.close()
 
-        system_instruction_decode = f"""The user has asked a quesiton, you need to decode it depending on the functionality, the 3 options are:
-        
-        1. CHAT: The user is asking a general question that doesn't require any specific data.
-        2. CHART: The user is asking for a chart or graph of the data.
-        3. MAP: The user is asking for a map of the data.
-
-        Please return only of these 3 options, no other text or explanation.
-        Return only the text options "CHAT", "CHART", or "MAP".
+        system_instruction_chat_decode = f"""
+        The user has asked a general question, you need to return a response to the user. You will be provided with the data in a JSON format.
 
         USER QUESTION:
         {user_query}
-        """
 
+        DATA FROM DATABASE:
+        {df_result.to_json(orient="records")}
+        
+        return a text response to the user.
+        """
+        
         response = client.models.generate_content(
             model="gemini-2.5-flash", 
-            contents=system_instruction_decode,
+            contents=system_instruction_chat_decode,
             config={
                 "temperature": 0.1 
             }
         )
 
-        response_text_decode = response.text
+        response_text_chat = response.text
 
-        if response_text_decode == "MAP":
-            system_instruction_map_decode = f"""
-            The user has asked for map visualizations, and data has been queried to display the new visuals. 
-            You will be provided with the data in a JSON format and you need to transform it into the mapData format.
+        return ChatResponse(
+            sessionId=session_id,
+            outputMessage=response_text_chat,
+            regionId=str(df_result.iloc[0].get('region_id')) if df_result.iloc[0].get('region_id') is not None else None,
+            cityId=str(df_result.iloc[0].get('city_id')) if df_result.iloc[0].get('city_id') is not None else None,
+            districtId=str(df_result.iloc[0].get('district_id')) if df_result.iloc[0].get('district_id') is not None else None
+        )
 
-            CRITICAL Instructions:
-            1. Analyze the database results to identify if it contains region_id, city_id, or district_id columns
-            2. Use the ACTUAL ID values from the database - DO NOT generate or make up IDs
-            3. Look for columns like region_id, city_id, or district_id in the data
-            4. The ID column values should be the KEYS in the output object
-            5. The aggregated metric (count, average, etc.) should be the VALUES
-            6. Create a descriptive title based on what the data represents
-            7. Return ONLY a valid JSON object matching the schema below
+        # system_instruction_decode = f"""The user has asked a quesiton, you need to decode it depending on the functionality, the 3 options are:
+        
+        # 1. CHAT: The user is asking a general question that doesn't require any specific data.
+        # 2. CHART: The user is asking for a chart or graph of the data.
+        # 3. MAP: The user is asking for a map of the data.
 
-            Example transformation:
-            If data has [{{ "region_id": 1, "patient_count": 500 }}, {{ "region_id": 2, "patient_count": 300 }}]
-            Then output should be: {{ "regions": {{ "1": 500, "2": 300 }}, "title": "Patient Count by Region" }}
+        # Please return only of these 3 options, no other text or explanation.
+        # Return only the text options "CHAT", "CHART", or "MAP".
 
-            USER QUESTION:
-            {user_query}
+        # USER QUESTION:
+        # {user_query}
+        # """
 
-            REGION ID MAPPING:
-            {ID_MAPPING}
+        # response = client.models.generate_content(
+        #     model="gemini-2.5-flash", 
+        #     contents=system_instruction_decode,
+        #     config={
+        #         "temperature": 0.1 
+        #     }
+        # )
 
-            DATA FROM DATABASE:
-            {df_result.to_json(orient="records")}
+        # response_text_decode = response.text
 
-            EXPECTED SCHEMA:
-            {json.dumps(map_data_schema, indent=2)}
+        # if response_text_decode == "MAP":
+        #     system_instruction_map_decode = f"""
+        #     The user has asked for map visualizations, and data has been queried to display the new visuals. 
+        #     You will be provided with the data in a JSON format and you need to transform it into the mapData format.
 
-            Return ONLY the JSON object, no explanations or markdown. Use the actual IDs from the data!
-            """
+        #     CRITICAL Instructions:
+        #     1. Analyze the database results to identify if it contains region_id, city_id, or district_id columns
+        #     2. Use the ACTUAL ID values from the database - DO NOT generate or make up IDs
+        #     3. Look for columns like region_id, city_id, or district_id in the data
+        #     4. The ID column values should be the KEYS in the output object
+        #     5. The aggregated metric (count, average, etc.) should be the VALUES
+        #     6. Create a descriptive title based on what the data represents
+        #     7. Return ONLY a valid JSON object matching the schema below
+
+        #     Example transformation:
+        #     If data has [{{ "region_id": 1, "patient_count": 500 }}, {{ "region_id": 2, "patient_count": 300 }}]
+        #     Then output should be: {{ "regions": {{ "1": 500, "2": 300 }}, "title": "Patient Count by Region" }}
+
+        #     USER QUESTION:
+        #     {user_query}
+
+        #     REGION ID MAPPING:
+        #     {ID_MAPPING}
+
+        #     DATA FROM DATABASE:
+        #     {df_result.to_json(orient="records")}
+
+        #     EXPECTED SCHEMA:
+        #     {json.dumps(map_data_schema, indent=2)}
+
+        #     Return ONLY the JSON object, no explanations or markdown. Use the actual IDs from the data!
+        #     """
             
-            response = client.models.generate_content(
-                model="gemini-2.5-flash", 
-                contents=system_instruction_map_decode,
-                config={
-                    "temperature": 0.1,
-                    "response_mime_type": "application/json"
-                }
-            )
+        #     response = client.models.generate_content(
+        #         model="gemini-2.5-flash", 
+        #         contents=system_instruction_map_decode,
+        #         config={
+        #             "temperature": 0.1,
+        #             "response_mime_type": "application/json"
+        #         }
+        #     )
             
-            map_data_result = json.loads(response.text)
+        #     map_data_result = json.loads(response.text)
             
-            return ChatResponse(
-                sessionId=session_id,
-                outputMessage=f"Here's the visualization of the data across the requested geographic areas.",
-                mapAction="REFRESH",
-                mapCoordinates=MapCoordinates(
-                    latitude=23.8859,
-                    longitude=45.0792
-                ),
-                mapData=map_data_result
-            )
-        else:
-            system_instruction_chat_decode = f"""
-            The user has asked a general question, you need to return a response to the user. You will be provided with the data in a JSON format.
+        #     return ChatResponse(
+        #         sessionId=session_id,
+        #         outputMessage=f"Here's the visualization of the data across the requested geographic areas.",
+        #         mapAction="REFRESH",
+        #         mapCoordinates=MapCoordinates(
+        #             latitude=23.8859,
+        #             longitude=45.0792
+        #         ),
+        #         mapData=map_data_result
+        #     )
+        # else:
+        #     system_instruction_chat_decode = f"""
+        #     The user has asked a general question, you need to return a response to the user. You will be provided with the data in a JSON format.
 
-            If the data is focused on a specific region, city, or district, return the region_id, city_id, or district_id (depending on the user question) in one of the regionId, cityId, or districtId fields.
+        #     If the data is focused on a specific region, city, or district, return the region_id, city_id, or district_id (depending on the user question) in one of the regionId, cityId, or districtId fields.
 
-            USER QUESTION:
-            {user_query}
+        #     USER QUESTION:
+        #     {user_query}
 
-            DATA FROM DATABASE:
-            {df_result.to_json(orient="records")}
+        #     DATA FROM DATABASE:
+        #     {df_result.to_json(orient="records")}
 
-            Return only the following json format:
-            {{'outputMessage': 'response to the user', 'regionId': 'region_id', 'cityId': 'city_id', 'districtId': 'district_id'}}.
+        #     Return only the following json format:
+        #     {{'outputMessage': 'response to the user', 'regionId': 'region_id', 'cityId': 'city_id', 'districtId': 'district_id'}}.
             
-            have regionId, cityId, or districtId default to null if the question is not about a specific region, city, or district.
-            """
+        #     have regionId, cityId, or districtId default to null if the question is not about a specific region, city, or district.
+        #     """
             
-            response = client.models.generate_content(
-                model="gemini-2.5-flash", 
-                contents=system_instruction_chat_decode,
-                config={
-                    "temperature": 0.1 
-                }
-            )
+        #     response = client.models.generate_content(
+        #         model="gemini-2.5-flash", 
+        #         contents=system_instruction_chat_decode,
+        #         config={
+        #             "temperature": 0.1 
+        #         }
+        #     )
             
-            print(response, flush=True)
+        #     print(response, flush=True)
 
-            response_text_chat = response.text
+        #     response_text_chat = response.text
             
-            # Parse the JSON response from the model
-            try:
-                # Extract JSON from markdown code blocks if present
-                import re
-                import json
+        #     # Parse the JSON response from the model
+        #     try:
+        #         # Extract JSON from markdown code blocks if present
+        #         import re
+        #         import json
                 
-                # Look for JSON content in code blocks
-                json_match = re.search(r'```json\s*\n(.*?)\n```', response_text_chat, re.DOTALL)
-                if json_match:
-                    json_str = json_match.group(1)
-                else:
-                    # Try to find JSON without code blocks
-                    json_str = response_text_chat.strip()
+        #         # Look for JSON content in code blocks
+        #         json_match = re.search(r'```json\s*\n(.*?)\n```', response_text_chat, re.DOTALL)
+        #         if json_match:
+        #             json_str = json_match.group(1)
+        #         else:
+        #             # Try to find JSON without code blocks
+        #             json_str = response_text_chat.strip()
                 
-                # Parse the JSON
-                parsed_response = json.loads(json_str)
+        #         # Parse the JSON
+        #         parsed_response = json.loads(json_str)
                 
-                return ChatResponse(
-                    sessionId=session_id,
-                    outputMessage=parsed_response.get('outputMessage', response_text_chat),
-                    regionId=str(parsed_response.get('regionId')) if parsed_response.get('regionId') is not None else None,
-                    cityId=str(parsed_response.get('cityId')) if parsed_response.get('cityId') is not None else None,
-                    districtId=str(parsed_response.get('districtId')) if parsed_response.get('districtId') is not None else None
-                )
+        #         return ChatResponse(
+        #             sessionId=session_id,
+        #             outputMessage=parsed_response.get('outputMessage', response_text_chat),
+        #             regionId=str(parsed_response.get('regionId')) if parsed_response.get('regionId') is not None else None,
+        #             cityId=str(parsed_response.get('cityId')) if parsed_response.get('cityId') is not None else None,
+        #             districtId=str(parsed_response.get('districtId')) if parsed_response.get('districtId') is not None else None
+        #         )
                 
-            except (json.JSONDecodeError, AttributeError) as e:
-                # Fallback to original behavior if JSON parsing fails
-                print(f"Failed to parse JSON response: {e}", flush=True)
-                return ChatResponse(
-                    sessionId=session_id,
-                    outputMessage=response_text_chat
-                )
+        #     except (json.JSONDecodeError, AttributeError) as e:
+        #         # Fallback to original behavior if JSON parsing fails
+        #         print(f"Failed to parse JSON response: {e}", flush=True)
+        #         return ChatResponse(
+        #             sessionId=session_id,
+        #             outputMessage=response_text_chat
+        #         )
         
 
 
