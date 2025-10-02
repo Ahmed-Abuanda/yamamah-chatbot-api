@@ -250,7 +250,7 @@ async def chat(request: ChatRequest):
             }
         )
 
-        generated_sql = response.candidates[0].content.parts[0].text.strip()
+        generated_sql = response.text.strip()
         generated_sql = strip_sql_markdown(generated_sql)
         print(generated_sql)
 
@@ -317,7 +317,16 @@ async def chat(request: ChatRequest):
             }
         )
 
-        response_text_chat = json.loads(response.candidates[0].content.parts[0].text)
+        # Use regex to extract JSON from the response
+        json_pattern = r'\{[^{}]*"outputMessage"[^{}]*"mapAction"[^{}]*\}'
+        json_match = re.search(json_pattern, response.text, re.DOTALL)
+        
+        if json_match:
+            json_str = json_match.group(0)
+            response_text_chat = json.loads(json_str)
+        else:
+            # Fallback: try to parse the entire response as JSON
+            response_text_chat = json.loads(response.text)
 
         return ChatResponse(
             sessionId=session_id,
