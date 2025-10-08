@@ -183,6 +183,18 @@ async def chat(request: ChatRequest):
             sessionId=session_id,
             outputMessage="Hello how can I help you?"
         )
+
+    elif session_id == "AUDIO":
+        return ChatResponse(
+            sessionId=session_id,
+            outputMessage="Here is the population of Riyadh"
+            regionId="1",
+            mapAction="REFRESH",
+            mapCoordinates=MapCoordinates(
+                latitude=23.8859,
+                longitude=45.0792
+            )
+        )
     
     # CHART response with chart data
     elif session_id == "CHART":
