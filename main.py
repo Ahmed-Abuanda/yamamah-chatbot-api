@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, Dict, List, Any
@@ -171,11 +171,34 @@ class ChatResponse(BaseModel):
 
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+async def chat(
+    sessionId: str = Form(...),
+    inputMessage: Optional[str] = Form(None),
+    audioFile: Optional[UploadFile] = File(None)
+):
     """
-    Get chatbot response and map instructions based on session ID
+    Get chatbot response and map instructions based on session ID.
+    Accepts either inputMessage (text) OR audioFile (binary MP3), but at least one is required.
     """
-    session_id = request.sessionId
+    session_id = sessionId
+    
+    # Validate that at least one of inputMessage or audioFile is provided
+    if not inputMessage and not audioFile:
+        return ChatResponse(
+            sessionId=session_id,
+            outputMessage="Error: Either inputMessage or audioFile must be provided"
+        )
+    
+    # If audioFile is provided, we can access it but won't transcribe it for now
+    if audioFile:
+        # Just acknowledge the file was received (no transcription needed per user request)
+        file_info = f"Audio file received: {audioFile.filename}, content_type: {audioFile.content_type}"
+        print(file_info, flush=True)
+        # For now, treat audio input similar to text input with a placeholder message
+        # In the future, this is where you'd add transcription logic
+        user_query = inputMessage if inputMessage else "Audio input received (transcription not implemented)"
+    else:
+        user_query = inputMessage
     
     # Simple CHAT response
     if session_id == "CHAT":
@@ -183,7 +206,7 @@ async def chat(request: ChatRequest):
             sessionId=session_id,
             outputMessage="Hello how can I help you?"
         )
-
+    
     elif session_id == "AUDIO":
         return ChatResponse(
             sessionId=session_id,
@@ -236,7 +259,7 @@ async def chat(request: ChatRequest):
     
     # Default response for any other session ID
     else:
-        user_query = request.inputMessage
+        # user_query is already set above based on inputMessage or audioFile
         q_vec = embed_text([user_query])
 
         D, I = index.search(q_vec, k=5)  # top-5 matches
